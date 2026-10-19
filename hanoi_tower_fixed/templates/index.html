@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>하노이의 탑 · 애니메이션</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 32px 16px; font-family: system-ui, sans-serif;
+      background: #f2f5fa; color: #243145; text-align: center;
+    }
+    h1 { margin: 0 0 8px; }
+    .subtitle { margin: 0 0 24px; color: #64748b; }
+    .panel {
+      max-width: 960px; margin: auto; padding: 20px;
+      border-radius: 16px; background: white;
+      box-shadow: 0 5px 25px #13233a0d;
+    }
+    .controls {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      align-items: end; gap: 12px; margin-bottom: 16px;
+    }
+    .input-group { display: flex; flex-direction: column; gap: 7px; text-align: left; }
+    .input-group label { font-weight: 650; font-size: 14px; }
+    #diskCount {
+      width: 215px; border: 1px solid #cbd5e1; border-radius: 9px;
+      font-size: 16px; padding: 11px 12px;
+    }
+    button {
+      border: 0; border-radius: 9px; padding: 12px 18px;
+      color: white; background: #2563eb; font-weight: 650; cursor: pointer;
+    }
+    button:hover:not(:disabled) { filter: brightness(0.93); }
+    button:disabled { opacity: 0.43; cursor: not-allowed; }
+    #pauseBtn { background: #0f766e; }
+    #resetBtn { background: #64748b; }
+    .speed-controls { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+    #speed { width: min(250px, 50vw); accent-color: #2563eb; }
+    #speedValue { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 55px; }
+    .help { margin: 12px 0 0; font-size: 13px; color: #64748b; }
+    .board {
+      position: relative; width: min(960px, 96vw); height: 300px;
+      margin: 28px auto 0; overflow: hidden; background: #fff;
+      border: 1px solid #e2e8f0; border-radius: 16px;
+      box-shadow: 0 5px 25px #13233a0d;
+    }
+    .rod { position: absolute; width: 9px; border-radius: 5px 5px 0 0;
+      background: #a3afbd; transform: translateX(-50%); }
+    .base { position: absolute; width: 29%; height: 8px; border-radius: 5px;
+      background: #475569; transform: translateX(-50%); }
+    .disk { position: absolute; border-radius: 5px;
+      box-shadow: inset 0 -2px 0 #00000018; z-index: 1; }
+    .tower-label { position: absolute; bottom: 8px; transform: translateX(-50%);
+      color: #64748b; font-size: 13px; font-weight: 700; }
+    #status { margin: 16px 0 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #description { margin: 0; color: #64748b; font-size: 14px; }
+    #warning { max-width: 900px; margin: 12px auto; color: #a16207; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>하노이의 탑</h1>
+  <p class="subtitle">원판이 위로 올라가고, 옆으로 이동한 뒤, 아래로 내려옵니다.</p>
+
+  <section class="panel">
+    <div class="controls">
+      <div class="input-group">
+        <label for="diskCount">원판의 개수를 입력하십시오</label>
+        <input id="diskCount" type="text" inputmode="numeric" maxlength="5"
+               placeholder="1~10,000 사이의 정수" autocomplete="off" />
+      </div>
+      <button id="startBtn" type="button">▶ 시작</button>
+      <button id="pauseBtn" type="button" disabled>⏸ 일시정지</button>
+      <button id="resetBtn" type="button">↺ 초기화</button>
+      <button id="resultBtn" type="button">∑ 결과 바로 보기</button>
+    </div>
+    <div class="speed-controls">
+      <label for="speed">애니메이션 속도</label>
+      <input id="speed" type="range" min="0.25" max="5" step="0.25" value="1" />
+      <output id="speedValue" for="speed">1.00배</output>
+    </div>
+    <p class="help">1배속은 원판 하나당 1초입니다. (상승 0.25초 · 이동 0.5초 · 하강 0.25초)</p>
+  </section>
+
+  <div class="board" id="board" role="img" aria-label="하노이의 탑 원판과 세 기둥"></div>
+  <p id="status" aria-live="polite">원판의 개수를 입력하십시오 (1~10,000개).</p>
+  <p id="description">입력 후 시작 버튼을 누르면 자동으로 움직입니다.</p>
+  <p id="warning" aria-live="polite"></p>
+  <section id="resultPanel" class="panel" hidden style="margin-top:16px;text-align:left">
+    <h2 style="font-size:18px">최소 이동 횟수 (정확한 값)</h2>
+    <p id="resultSummary"></p>
+    <textarea id="resultValue" readonly aria-label="전체 이동 횟수" style="width:100%;height:100px;resize:vertical;padding:10px;overflow:auto"></textarea>
+    <button id="copyBtn" type="button">숫자 복사</button>
+  </section>
+
+  <script>
+    const board = document.getElementById("board");
+    const diskInput = document.getElementById("diskCount");
+    const startBtn = document.getElementById("startBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const resultBtn = document.getElementById("resultBtn");
+    const resultPanel = document.getElementById("resultPanel");
+    const resultSummary = document.getElementById("resultSummary");
+    const resultValue = document.getElementById("resultValue");
+    const copyBtn = document.getElementById("copyBtn");
+    const speedInput = document.getElementById("speed");
+    const speedValue = document.getElementById("speedValue");
+    const statusText = document.getElementById("status");
+    const description = document.getElementById("description");
+    const warning = document.getElementById("warning");
+
+    const BASE_BOTTOM = 44;
+    let MAX_DISKS = 10000;
+    const MAX_VISUAL_DISKS = 1000;
+    let towers = [[], [], []];
+    let disks = new Map();
+    let diskHeight = 24;
+    let rodHeight = 200;
+    let diskCount = 0;
+    let completedMoves = 0n;
+    let totalMoves = 0n;
+    let runId = 0;
+    let running = false;
+    let paused = false;
+    let currentAnimation = null;
+    let controller = null;
+    let resumeWaiters = [];
+
+    function getDiskCount() {
+      const value = diskInput.value.trim();
+      if (!/^[1-9][0-9]{0,4}$/.test(value)) return null;
+      const count = Number(value);
+      return count <= MAX_DISKS ? count : null;
+    }
+
+    function displayCount(value) {
+      const str = value.toString();
+      return str.length > 80 ? `${str.length}자리 정수 (결과 바로 보기 버튼으로 확인)` : value.toLocaleString("ko-KR");
+    }
+
+    function towerCenter(index) {
+      return board.clientWidth * (index + 0.5) / 3;
+    }
+
+    function diskWidth(size) {
+      const slot = board.clientWidth / 3;
+      const minWidth = Math.min(42, slot * 0.28);
+      return minWidth + (slot * 0.85 - minWidth) * size / diskCount;
+    }
+
+    function diskTop(level) {
+      return board.clientHeight - BASE_BOTTOM - (level + 1) * diskHeight;
+    }
+
+    function redrawScene() {
+      board.innerHTML = "";
+      disks = new Map();
+      diskHeight = diskCount ? Math.max(2, Math.min(25, Math.floor(480 / diskCount))) : 24;
+      rodHeight = diskCount > MAX_VISUAL_DISKS ? 200 : diskCount * diskHeight + 12;
+      board.style.height = (diskCount > MAX_VISUAL_DISKS ? 300 : Math.max(300, diskCount * diskHeight + 94)) + "px";
+
+      for (let i = 0; i < 3; i++) {
+        const x = towerCenter(i);
+        const rod = document.createElement("div");
+        rod.className = "rod";
+        rod.style.left = x + "px";
+        rod.style.height = rodHeight + "px";
+        rod.style.bottom = BASE_BOTTOM + "px";
+        board.appendChild(rod);
+
+        const base = document.createElement("div");
+        base.className = "base";
+        base.style.left = x + "px";
+        base.style.bottom = (BASE_BOTTOM - 8) + "px";
+        board.appendChild(base);
+
+        const label = document.createElement("div");
+        label.className = "tower-label";
+        label.style.left = x + "px";
+        label.textContent = ["A", "B", "C"][i];
+        board.appendChild(label);
+      }
+
+      if (diskCount > MAX_VISUAL_DISKS) return;
+      for (let tower = 0; tower < 3; tower++) {
+        towers[tower].forEach((size, level) => {
+          const width = diskWidth(size);
+          const disk = document.createElement("div");
+          disk.className = "disk";
+          disk.style.height = diskHeight + "px";
+          disk.style.width = width + "px";
+          disk.style.left = (towerCenter(tower) - width / 2) + "px";
+          disk.style.top = diskTop(level) + "px";
+          disk.style.background = `hsl(${size * 43 % 360}, 75%, 61%)`;
+          board.appendChild(disk);
+          disks.set(size, disk);
+        });
+      }
+    }
+
+    function releaseWaiters() {
+      const waiters = resumeWaiters;
+      resumeWaiters = [];
+      waiters.forEach(resolve => resolve());
+    }
+
+    function resetHanoi() {
+      // 이전 작업의 API 요청 · 애니메이션 · 일시정지 대기를 모두 무효화
+      runId++;
+      controller?.abort();
+      controller = null;
+      currentAnimation?.cancel();
+      currentAnimation = null;
+      running = false;
+      paused = false;
+      releaseWaiters();
+
+      diskCount = getDiskCount() || 0;
+      resultPanel.hidden = true;
+      towers = [diskCount <= MAX_VISUAL_DISKS ? Array.from({ length: diskCount }, (_, i) => diskCount - i) : [], [], []];
+      completedMoves = 0n;
+      totalMoves = diskCount ? (1n << BigInt(diskCount)) - 1n : 0n;
+
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      pauseBtn.textContent = "⏸ 일시정지";
+      diskInput.disabled = false;
+      description.textContent = "입력 후 시작 버튼을 누르면 자동으로 움직입니다.";
+      statusText.textContent = diskCount
+        ? `준비 완료: 원판 ${diskCount}개 · 총 ${displayCount(totalMoves)} 이동`
+        : `원판의 개수를 입력하십시오 (1~${MAX_DISKS.toLocaleString("ko-KR")}개).`;
+      warning.textContent = diskCount > MAX_VISUAL_DISKS
+        ? `※ ${diskCount.toLocaleString("ko-KR")}개는 화면에 모두 그리기에는 너무 큰 값입니다. 정확한 결과는 확인할 수 있지만 애니메이션은 ${MAX_VISUAL_DISKS.toLocaleString("ko-KR")}개 이하만 지원합니다.`
+        : diskCount >= 12
+          ? `※ 원판 ${diskCount.toLocaleString("ko-KR")}개는 이동 횟수가 매우 커서 완료까지 사실상 불가능할 수 있습니다.`
+          : diskInput.value.trim() && !diskCount
+            ? `너무 큰 값이거나 잘못된 입력입니다. 1~${MAX_DISKS.toLocaleString("ko-KR")} 사이의 정수를 입력하세요.`
+            : "";
+      startBtn.disabled = diskCount > MAX_VISUAL_DISKS;
+      redrawScene();
+    }
+
+    // 서버 통신이 실패해도 필요한 이동을 한 번에 하나씩 계산할 수 있습니다.
+    // step과 이동 횟수는 BigInt로 처리하여 큰 원판 개수에서도 정밀도를 유지합니다.
+    function calculateMoveLocally(step) {
+      let disk = 1;
+      let value = step;
+      while (value % 2n === 0n) {
+        disk++;
+        value >>= 1n;
+      }
+      const previous = step >> BigInt(disk);
+      const direction = (diskCount - disk) % 2 === 0 ? -1 : 1;
+      const from = (Number(previous % 3n) * direction + 3) % 3;
+      const to = (from + direction + 3) % 3;
+      return { disk, from, to };
+    }
+
+    function isValidMove(move) {
+      return move && Number.isInteger(move.disk) && move.disk >= 1
+        && move.disk <= diskCount
+        && Number.isInteger(move.from) && move.from >= 0 && move.from <= 2
+        && Number.isInteger(move.to) && move.to >= 0 && move.to <= 2
+        && move.from !== move.to;
+    }
+
+    async function waitWhilePaused(id) {
+      while (paused && id === runId) {
+        await new Promise(resolve => resumeWaiters.push(resolve));
+      }
+    }
+
+    function togglePause() {
+      if (!running) return;
+      paused = !paused;
+      if (paused) {
+        currentAnimation?.pause();
+        pauseBtn.textContent = "▶ 재개";
+        description.textContent = "일시정지 중입니다.";
+      } else {
+        currentAnimation?.play();
+        pauseBtn.textContent = "⏸ 일시정지";
+        description.textContent = "애니메이션이 진행 중입니다.";
+        releaseWaiters();
+      }
+    }
+
+    async function animateMove(move) {
+      const { disk: size, from, to } = move;
+      if (towers[from].at(-1) !== size) {
+        throw new Error("원판 순서가 올바르지 않습니다.");
+      }
+      const disk = disks.get(size);
+      const startX = disk.offsetLeft;
+      const startY = disk.offsetTop;
+      const endX = towerCenter(to) - disk.offsetWidth / 2;
+      const endY = diskTop(towers[to].length);
+      const liftY = Math.max(8, board.clientHeight - BASE_BOTTOM - rodHeight - diskHeight - 8);
+      const dx = endX - startX;
+      const up = liftY - startY;
+      const down = endY - startY;
+
+      const animation = disk.animate([
+        { transform: "translate(0px, 0px)", offset: 0 },
+        { transform: `translate(0px, ${up}px)`, offset: 0.25 },
+        { transform: `translate(${dx}px, ${up}px)`, offset: 0.75 },
+        { transform: `translate(${dx}px, ${down}px)`, offset: 1 }
+      ], { duration: 1000, easing: "linear", fill: "forwards" });
+
+      currentAnimation = animation;
+      animation.playbackRate = Number(speedInput.value);
+      if (paused) animation.pause();
+      await animation.finished;  // 취소 시 reject되어 이전 실행은 종료됨
+
+      disk.style.left = endX + "px";
+      disk.style.top = endY + "px";
+      animation.cancel();
+      if (currentAnimation === animation) currentAnimation = null;
+      towers[from].pop();
+      towers[to].push(size);
+    }
+
+    async function startHanoi() {
+      if (running) return;
+      resetHanoi();
+      if (!diskCount || diskCount > MAX_VISUAL_DISKS) {
+        statusText.textContent = `애니메이션은 1~${MAX_VISUAL_DISKS.toLocaleString("ko-KR")}개까지 지원합니다.`;
+        diskInput.focus();
+        return;
+      }
+
+      running = true;
+      startBtn.disabled = true;
+      pauseBtn.disabled = false;
+      diskInput.disabled = true;
+      controller = new AbortController();
+      const myRun = runId;
+      const signal = controller.signal;
+      description.textContent = "애니메이션이 진행 중입니다.";
+
+      try {
+        // 총 이동 횟수는 resetHanoi()에서 BigInt로 이미 정확하게 계산했습니다.
+        // 이전 버전 서버가 /api/hanoi/{n}에 응답하지 않아도 시작할 수 있습니다.
+        let batch = [];
+        let cursor = 0;
+        let localMode = false;
+
+        while (completedMoves < totalMoves && myRun === runId) {
+          await waitWhilePaused(myRun);
+          if (myRun !== runId) return;
+
+          if (!localMode && cursor >= batch.length) {
+            const nextStep = (completedMoves + 1n).toString();
+            const url = `/api/hanoi/${diskCount}/moves?start=${nextStep}&limit=100`;
+            try {
+              const response = await fetch(url, { signal });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const data = await response.json();
+              if (myRun !== runId) return;
+              if (!Array.isArray(data.moves) || !data.moves.length ||
+                  !data.moves.every((move, index) => {
+                    const expected = calculateMoveLocally(completedMoves + 1n + BigInt(index));
+                    return isValidMove(move) && move.disk === expected.disk &&
+                      move.from === expected.from && move.to === expected.to;
+                  })) {
+                throw new Error("이동 데이터 형식 또는 순서 오류");
+              }
+              batch = data.moves;
+              cursor = 0;
+            } catch (apiError) {
+              if (myRun !== runId || signal.aborted) return;
+              // 서버 API가 오래된 버전이거나 연결에 실패한 경우 로컬 계산으로 전환
+              localMode = true;
+              batch = [];
+              warning.textContent =
+                `서버 이동 API를 사용할 수 없어 브라우저에서 직접 계산 중입니다. ` +
+                `(서버 응답: ${apiError.message}) ` +
+                `PyCharm에서 최신 main.py가 실행 중인지 확인해 주세요.`;
+            }
+          }
+
+          await waitWhilePaused(myRun);
+          if (myRun !== runId) return;
+          const move = localMode
+            ? calculateMoveLocally(completedMoves + 1n)
+            : batch[cursor++];
+          description.textContent =
+            `원판 ${move.disk}번: ${["A", "B", "C"][move.from]} → ${["A", "B", "C"][move.to]}`;
+          await animateMove(move);
+          if (myRun !== runId) return;
+
+          completedMoves++;
+          statusText.textContent =
+            `이동 횟수: ${completedMoves.toLocaleString("ko-KR")} / ${displayCount(totalMoves)}`;
+        }
+        if (myRun === runId) description.textContent = "모든 원판의 이동을 완료했습니다!";
+      } catch (error) {
+        if (myRun === runId && error.name !== "AbortError") {
+          statusText.textContent = `오류: ${error.message}`;
+          description.textContent = "애니메이션이 중단되었습니다. 초기화 후 다시 시도해 주세요.";
+        }
+      } finally {
+        if (myRun === runId) {
+          running = false;
+          paused = false;
+          controller = null;
+          pauseBtn.disabled = true;
+          pauseBtn.textContent = "⏸ 일시정지";
+          startBtn.disabled = false;
+          diskInput.disabled = false;
+        }
+      }
+    }
+
+    diskInput.addEventListener("input", resetHanoi);
+    startBtn.addEventListener("click", startHanoi);
+    pauseBtn.addEventListener("click", togglePause);
+    resetBtn.addEventListener("click", resetHanoi);
+    resultBtn.addEventListener("click", () => {
+      const count = getDiskCount();
+      if (!count) {
+        warning.textContent = `너무 큰 값이거나 잘못된 입력입니다. 1~${MAX_DISKS.toLocaleString("ko-KR")} 사이의 정수를 입력하세요.`;
+        diskInput.focus();
+        return;
+      }
+      const exact = ((1n << BigInt(count)) - 1n).toString();
+      resultSummary.textContent = `원판 ${count.toLocaleString("ko-KR")}개 · 최소 이동 횟수 = 2^${count} - 1 (${exact.length.toLocaleString("ko-KR")}자리)`;
+      resultValue.value = exact;
+      resultPanel.hidden = false;
+    });
+    copyBtn.addEventListener("click", async () => {
+      resultValue.select();
+      try {
+        await navigator.clipboard.writeText(resultValue.value);
+        copyBtn.textContent = "복사 완료";
+      } catch (_) {
+        copyBtn.textContent = "숫자를 선택했습니다. Ctrl+C로 복사하세요";
+      }
+    });
+    speedInput.addEventListener("input", () => {
+      const speed = Number(speedInput.value);
+      speedValue.textContent = speed.toFixed(2) + "배";
+      if (currentAnimation) currentAnimation.playbackRate = speed;
+    });
+    window.addEventListener("resize", () => {
+      // 작동 중인 원판 좌표는 바꾸지 않고, 대기 상태일 때만 재배치
+      if (!running) redrawScene();
+    });
+
+    fetch("/api/config")
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then(data => {
+        const isCurrentServer = data.version === "2.1-fixed";
+        if (isCurrentServer && Number.isInteger(data.max_disks) && data.max_disks > 0) {
+          MAX_DISKS = Math.min(data.max_disks, 99999);
+        }
+        resetHanoi();
+        if (!isCurrentServer) {
+          warning.textContent = "현재 FastAPI 서버가 구버전일 수 있습니다. 최신 main.py로 서버를 다시 실행해 주세요. 이동 API가 실패하면 브라우저가 직접 계산합니다.";
+        }
+      })
+      .catch(() => {
+        resetHanoi();
+        warning.textContent = "FastAPI 서버 버전을 확인하지 못했습니다. 최신 main.py로 서버를 다시 실행해 주세요. 이동 API가 실패하면 브라우저가 직접 계산합니다.";
+      });
+  </script>
+</body>
+</html>
